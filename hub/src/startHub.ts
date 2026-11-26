@@ -3,6 +3,7 @@ import { Store } from './store'
 import { SyncEngine, type SyncEvent } from './sync/syncEngine'
 import { NotificationHub } from './notifications/notificationHub'
 import type { NotificationChannel } from './notifications/notificationTypes'
+import type { FeishuBot } from './feishu/bot'
 import { HappyBot } from './telegram/bot'
 import { startWebServer } from './web/server'
 import { getOrCreateJwtSecret } from './config/jwtSecret'
@@ -111,6 +112,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     console.log('HAPI Hub starting...')
 
     let syncEngine: SyncEngine | null = null
+    let feishuBot: FeishuBot | null = null
     let happyBot: HappyBot | null = null
     let webServer: BunServer<WebSocketData> | null = null
     let sseManager: SSEManager | null = null
@@ -276,6 +278,25 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         }
     }
 
+    if (config.feishuEnabled && config.feishuAppId && config.feishuAppSecret) {
+        const { FeishuBot } = await import('./feishu/bot')
+        feishuBot = new FeishuBot({
+            syncEngine,
+            cliApiToken: () => config.cliApiToken,
+            appId: config.feishuAppId,
+            appSecret: config.feishuAppSecret,
+            baseUrl: config.feishuBaseUrl,
+            encryptKey: config.feishuEncryptKey,
+            verificationToken: config.feishuVerificationToken,
+            store
+        })
+        if (config.feishuNotification) {
+            notificationChannels.push(feishuBot)
+        }
+        console.log(`[Hub] Feishu: enabled (${formatSource(config.sources.feishuAppId)})`)
+        console.log(`[Hub] Feishu notifications: ${config.feishuNotification ? 'enabled' : 'disabled'}`)
+    }
+
     notificationHub = new NotificationHub(syncEngine, notificationChannels)
 
     // Start HTTP service first (before tunnel, so tunnel has something to forward to)
@@ -296,6 +317,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     if (happyBot) {
         await happyBot.start()
     }
+    await feishuBot?.start()
 
     console.log('')
     console.log('[Web] Hub listening on :' + config.listenPort)
@@ -393,6 +415,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     return {
         stop: async () => {
             await tunnelManager?.stop()
+            await feishuBot?.stop()
             await happyBot?.stop()
             notificationHub?.stop()
             syncEngine?.stop()

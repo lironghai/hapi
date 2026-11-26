@@ -8,7 +8,8 @@ function makeTempDir(): string {
     return mkdtempSync(join(tmpdir(), 'hapi-server-settings-test-'))
 }
 
-const PUSH_ENV_KEYS = [
+const CHANNEL_ENV_KEYS = [
+    'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_ENABLED', 'FEISHU_NOTIFICATION', 'FEISHU_BASE_URL',
     'FCM_SERVICE_ACCOUNT_PATH',
     'HAPI_IOS_PUSH',
     'HAPI_PUSH_RELAY_URL',
@@ -22,12 +23,12 @@ const PUSH_ENV_KEYS = [
 describe('loadServerSettings', () => {
     let dir: string | null = null
     const originalBackgroundOnly = process.env.SERVERCHAN_BACKGROUND_ONLY
-    const originalPushEnv: Record<string, string | undefined> = {}
+    const originalChannelEnv: Record<string, string | undefined> = {}
 
     beforeEach(() => {
         delete process.env.SERVERCHAN_BACKGROUND_ONLY
-        for (const key of PUSH_ENV_KEYS) {
-            originalPushEnv[key] = process.env[key]
+        for (const key of CHANNEL_ENV_KEYS) {
+            originalChannelEnv[key] = process.env[key]
             delete process.env[key]
         }
     })
@@ -42,8 +43,8 @@ describe('loadServerSettings', () => {
         } else {
             process.env.SERVERCHAN_BACKGROUND_ONLY = originalBackgroundOnly
         }
-        for (const key of PUSH_ENV_KEYS) {
-            const previous = originalPushEnv[key]
+        for (const key of CHANNEL_ENV_KEYS) {
+            const previous = originalChannelEnv[key]
             if (previous === undefined) {
                 delete process.env[key]
             } else {
@@ -61,6 +62,33 @@ describe('loadServerSettings', () => {
         }))
 
         await expect(loadServerSettings(dir)).rejects.toThrow('Unsupported old settings field')
+    })
+
+    it('enables Feishu with both credentials and honors notification and region settings after restart', async () => {
+        dir = makeTempDir()
+        process.env.FEISHU_APP_ID = 'test-app'
+        expect((await loadServerSettings(dir)).settings.feishuEnabled).toBe(false)
+        process.env.FEISHU_APP_SECRET = 'test-secret'
+        process.env.FEISHU_BASE_URL = 'https://open.larksuite.com/'
+        process.env.FEISHU_NOTIFICATION = 'false'
+        const { settings } = await loadServerSettings(dir)
+        expect(settings.feishuEnabled).toBe(true)
+        expect(settings.feishuNotification).toBe(false)
+        expect(settings.feishuBaseUrl).toBe('https://open.larksuite.com')
+
+        delete process.env.FEISHU_APP_SECRET
+        process.env.FEISHU_ENABLED = 'false'
+        const reloaded = await loadServerSettings(dir)
+        expect(reloaded.sources.feishuAppSecret).toBe('file')
+        expect(reloaded.settings.feishuEnabled).toBe(false)
+    })
+
+    it('rejects an invalid notification flag or an unrecognized SDK credential destination', async () => {
+        dir = makeTempDir()
+        writeFileSync(join(dir, 'settings.json'), JSON.stringify({ feishuNotification: 'false' }))
+        await expect(loadServerSettings(dir)).rejects.toThrow('feishuNotification must be a boolean')
+        writeFileSync(join(dir, 'settings.json'), JSON.stringify({ feishuBaseUrl: 'https://example.invalid' }))
+        await expect(loadServerSettings(dir)).rejects.toThrow('FEISHU_BASE_URL')
     })
 
     it('defaults githubPrAwareness to false', async () => {

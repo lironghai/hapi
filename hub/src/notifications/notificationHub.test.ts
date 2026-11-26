@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import type { Session, SyncEvent, SyncEventListener, SyncEngine } from '../sync/syncEngine'
 import type { SessionEndReason } from '@hapi/protocol'
 import type {
@@ -124,6 +124,50 @@ function createSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe('NotificationHub', () => {
+    it('forwards settled assistant replies from active sessions only', () => {
+        const engine = new FakeSyncEngine()
+        const texts: string[] = []
+        const channel: NotificationChannel = {
+            sendReady: async () => {},
+            sendPermissionRequest: async () => {},
+            sendMessage: async (_session, text) => { texts.push(text) }
+        }
+        const hub = new NotificationHub(engine as unknown as SyncEngine, [channel])
+        const session = createSession()
+        engine.setSession(session)
+        let seq = 0
+        function emit(content: unknown) {
+            seq++
+            engine.emit({
+                type: 'message-received', sessionId: session.id,
+                message: { id: String(seq), seq, createdAt: 0, localId: null, content }
+            })
+        }
+        function agent(data: unknown) {
+            return { role: 'agent', content: { type: 'codex', data } }
+        }
+        const reply = agent({ type: 'message', message: 'First reply' })
+        try {
+            emit(agent({ type: 'message', message: 'partial', streamSnapshot: true, live: true }))
+            emit(agent({ type: 'reasoning', message: 'private' }))
+            emit({ payload: { message: reply } })
+            emit({ role: 'user', content: { type: 'text', text: 'prompt' } })
+            const assistant = { type: 'assistant', message: { content: [
+                { type: 'thinking', thinking: 'private' },
+                { type: 'text', text: 'Second reply' }
+            ] } }
+            for (const hidden of [{ isSidechain: true }, { isMeta: true }, { isCompactSummary: true }, { parent_tool_use_id: 'subtask' }]) {
+                emit({ role: 'agent', content: { type: 'output', data: { ...assistant, ...hidden } } })
+            }
+            emit({ role: 'agent', content: { type: 'output', data: assistant } })
+            engine.setSession({ ...session, active: false })
+            emit(reply)
+            expect(texts).toEqual(['First reply', 'Second reply'])
+        } finally {
+            hub.stop()
+        }
+    })
+
     it('debounces permission notifications and triggers when request IDs change', async () => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()
@@ -170,7 +214,7 @@ describe('NotificationHub', () => {
         hub.stop()
     })
 
-    it('throttles ready notifications per session', async () => {
+    it('throttles ready notifications per session', () => {
         const engine = new FakeSyncEngine()
         const channel = new StubChannel()
         const hub = new NotificationHub(engine as unknown as SyncEngine, [channel], {
@@ -200,20 +244,22 @@ describe('NotificationHub', () => {
             }
         }
 
-        engine.emit(readyEvent)
-        await sleep(5)
-        expect(channel.readySessions).toHaveLength(1)
+        const now = spyOn(Date, 'now').mockReturnValue(1000)
+        try {
+            engine.emit(readyEvent)
+            expect(channel.readySessions).toHaveLength(1)
 
-        engine.emit(readyEvent)
-        await sleep(5)
-        expect(channel.readySessions).toHaveLength(1)
+            now.mockReturnValue(1005)
+            engine.emit(readyEvent)
+            expect(channel.readySessions).toHaveLength(1)
 
-        await sleep(30)
-        engine.emit(readyEvent)
-        await sleep(5)
-        expect(channel.readySessions).toHaveLength(2)
-
-        hub.stop()
+            now.mockReturnValue(1035)
+            engine.emit(readyEvent)
+            expect(channel.readySessions).toHaveLength(2)
+        } finally {
+            now.mockRestore()
+            hub.stop()
+        }
     })
 
 

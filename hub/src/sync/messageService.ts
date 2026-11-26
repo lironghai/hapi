@@ -969,7 +969,7 @@ export class MessageService {
             text: string
             localId?: string | null
             attachments?: AttachmentMetadata[]
-            sentFrom?: 'telegram-bot' | 'webapp' | 'hapi-system'
+            sentFrom?: 'telegram-bot' | 'feishu' | 'webapp' | 'hapi-system'
             scheduledAt?: number | null
             deliveryMode?: MessageDeliveryMode
         }
@@ -1022,7 +1022,7 @@ export class MessageService {
     private shouldTranslate(payload: { text: string; localId?: string | null; sentFrom?: string }): boolean {
         if (!this.inputTranslation?.available) return false
         const sentFrom = payload.sentFrom ?? 'webapp'
-        if (sentFrom !== 'webapp' && sentFrom !== 'telegram-bot') return false
+        if (sentFrom !== 'webapp' && sentFrom !== 'telegram-bot' && sentFrom !== 'feishu') return false
         if (payload.localId?.startsWith(PEER_MESSAGE_LOCAL_ID_PREFIX)) return false
         return payload.text.trim().length > 0
     }
@@ -1033,7 +1033,7 @@ export class MessageService {
             text: string
             localId?: string | null
             attachments?: AttachmentMetadata[]
-            sentFrom?: 'telegram-bot' | 'webapp' | 'hapi-system'
+            sentFrom?: 'telegram-bot' | 'feishu' | 'webapp' | 'hapi-system'
             scheduledAt?: number | null
             deliveryMode?: MessageDeliveryMode
         },

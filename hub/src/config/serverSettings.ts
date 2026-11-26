@@ -34,6 +34,13 @@ export type PushSettingKey = (typeof PUSH_SETTING_KEYS)[number][0]
 export interface ServerSettings {
     telegramBotToken: string | null
     telegramNotification: boolean
+    feishuAppId: string | null
+    feishuAppSecret: string | null
+    feishuEncryptKey: string | null
+    feishuVerificationToken: string | null
+    feishuEnabled: boolean
+    feishuNotification: boolean
+    feishuBaseUrl: string
     serverChanSendKey: string | null
     serverChanNotification: boolean
     serverChanBackgroundOnly: boolean
@@ -58,6 +65,13 @@ export interface ServerSettingsResult {
     sources: {
         telegramBotToken: 'env' | 'file' | 'default'
         telegramNotification: 'env' | 'file' | 'default'
+        feishuAppId: 'env' | 'file' | 'default'
+        feishuAppSecret: 'env' | 'file' | 'default'
+        feishuEncryptKey: 'env' | 'file' | 'default'
+        feishuVerificationToken: 'env' | 'file' | 'default'
+        feishuEnabled: 'env' | 'file' | 'default'
+        feishuNotification: 'env' | 'file' | 'default'
+        feishuBaseUrl: 'env' | 'file' | 'default'
         serverChanSendKey: 'env' | 'file' | 'default'
         serverChanNotification: 'env' | 'file' | 'default'
         serverChanBackgroundOnly: 'env' | 'file' | 'default'
@@ -130,6 +144,13 @@ export async function loadServerSettings(dataDir: string): Promise<ServerSetting
         const sources: ServerSettingsResult['sources'] = {
             telegramBotToken: 'default',
             telegramNotification: 'default',
+            feishuAppId: 'default',
+            feishuAppSecret: 'default',
+            feishuEncryptKey: 'default',
+            feishuVerificationToken: 'default',
+            feishuEnabled: 'default',
+            feishuNotification: 'default',
+            feishuBaseUrl: 'default',
             serverChanSendKey: 'default',
             serverChanNotification: 'default',
             serverChanBackgroundOnly: 'default',
@@ -174,6 +195,53 @@ export async function loadServerSettings(dataDir: string): Promise<ServerSetting
         } else if (settings.telegramNotification !== undefined) {
             telegramNotification = settings.telegramNotification
             sources.telegramNotification = 'file'
+        }
+
+        function feishuString(key: 'feishuAppId' | 'feishuAppSecret' | 'feishuEncryptKey' | 'feishuVerificationToken' | 'feishuBaseUrl', envName: string): string | null {
+            const env = process.env[envName]?.trim()
+            if (env) {
+                sources[key] = 'env'
+                if (settings[key] === undefined) {
+                    settings[key] = env
+                    needsSave = true
+                }
+                return env
+            }
+            const value = settings[key]
+            if (value === undefined) return null
+            if (typeof value !== 'string') throw new Error(`${key} must be a string`)
+            sources[key] = 'file'
+            return value.trim() || null
+        }
+
+        function feishuFlag(key: 'feishuEnabled' | 'feishuNotification', envName: string, fallback: boolean): boolean {
+            const env = process.env[envName]?.trim().toLowerCase()
+            if (env !== undefined) {
+                if (env !== 'true' && env !== 'false') throw new Error(`${envName} must be true or false`)
+                const enabled = env === 'true'
+                sources[key] = 'env'
+                if (settings[key] === undefined) {
+                    settings[key] = enabled
+                    needsSave = true
+                }
+                return enabled
+            }
+            const value = settings[key]
+            if (value === undefined) return fallback
+            if (typeof value !== 'boolean') throw new Error(`${key} must be a boolean`)
+            sources[key] = 'file'
+            return value
+        }
+
+        const feishuAppId = feishuString('feishuAppId', 'FEISHU_APP_ID')
+        const feishuAppSecret = feishuString('feishuAppSecret', 'FEISHU_APP_SECRET')
+        const feishuEncryptKey = feishuString('feishuEncryptKey', 'FEISHU_ENCRYPT_KEY')
+        const feishuVerificationToken = feishuString('feishuVerificationToken', 'FEISHU_VERIFICATION_TOKEN')
+        const feishuEnabled = feishuFlag('feishuEnabled', 'FEISHU_ENABLED', Boolean(feishuAppId && feishuAppSecret))
+        const feishuNotification = feishuFlag('feishuNotification', 'FEISHU_NOTIFICATION', true)
+        const feishuBaseUrl = (feishuString('feishuBaseUrl', 'FEISHU_BASE_URL') ?? 'https://open.feishu.cn').replace(/\/+$/, '')
+        if (feishuBaseUrl !== 'https://open.feishu.cn' && feishuBaseUrl !== 'https://open.larksuite.com') {
+            throw new Error('FEISHU_BASE_URL must be https://open.feishu.cn or https://open.larksuite.com')
         }
 
         // serverChanSendKey: env > file > null
@@ -334,6 +402,13 @@ export async function loadServerSettings(dataDir: string): Promise<ServerSetting
                 settings: {
                     telegramBotToken,
                     telegramNotification,
+                    feishuAppId,
+                    feishuAppSecret,
+                    feishuEncryptKey,
+                    feishuVerificationToken,
+                    feishuEnabled,
+                    feishuNotification,
+                    feishuBaseUrl,
                     serverChanSendKey,
                     serverChanNotification,
                     serverChanBackgroundOnly,

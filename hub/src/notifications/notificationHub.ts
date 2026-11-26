@@ -6,7 +6,7 @@ import type {
     NotificationHubOptions
 } from './notificationTypes'
 import type { NotificationSendContext } from './notificationSendContext'
-import { extractMessageEventType } from './eventParsing'
+import { extractAssistantMessageText, extractMessageEventType } from './eventParsing'
 
 export class NotificationHub {
     private readonly channels: NotificationChannel[]
@@ -133,6 +133,14 @@ export class NotificationHub {
                 this.sendReadyNotification(event.sessionId).catch((error) => {
                     console.error('[NotificationHub] Failed to send ready notification:', error)
                 })
+            }
+
+            if (this.channels.some((channel) => channel.sendMessage)) {
+                const session = this.getNotifiableSession(event.sessionId)
+                const text = session && extractAssistantMessageText(event)
+                if (session && text) {
+                    void this.notifyMessage(session, text)
+                }
             }
         }
     }
@@ -424,6 +432,17 @@ export class NotificationHub {
                 await channel.sendPermissionRequest(session, ctx)
             } catch (error) {
                 console.error('[NotificationHub] Failed to send permission notification:', error)
+            }
+        }
+    }
+
+    private async notifyMessage(session: Session, text: string): Promise<void> {
+        for (const channel of this.channels) {
+            if (!channel.sendMessage) continue
+            try {
+                await channel.sendMessage(session, text)
+            } catch (error) {
+                console.error('[NotificationHub] Failed to send message notification:', error)
             }
         }
     }
